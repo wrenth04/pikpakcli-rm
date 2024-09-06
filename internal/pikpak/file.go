@@ -9,6 +9,10 @@ import (
 	"unsafe"
 
 	"github.com/tidwall/gjson"
+	"bytes"
+	"fmt"
+	jsoniter "github.com/json-iterator/go"
+	"github.com/sirupsen/logrus"
 )
 
 type FileStat struct {
@@ -172,4 +176,83 @@ func (p *PikPak) GetFile(fileId string) (File, error) {
 		return fileInfo, err
 	}
 	return fileInfo, err
+}
+
+func (p *PikPak) RemoveFolder(parentId string) error {
+	m := map[string]interface{} {
+		"ids" : []interface{}{parentId},
+	}
+	bs, err := jsoniter.Marshal(&m)
+	if err != nil {
+		return err
+	}
+START:
+	req, err := http.NewRequest("POST", "https://api-drive.mypikpak.com/drive/v1/files:batchTrash", bytes.NewBuffer(bs))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json; charset=utf-8")
+	req.Header.Set("Product_flavor_name", "cha")
+	req.Header.Set("X-Captcha-Token", p.CaptchaToken)
+	req.Header.Set("X-Client-Version-Code", "10083")
+	req.Header.Set("X-Peer-Id", p.DeviceId)
+	req.Header.Set("X-User-Region", "1")
+	req.Header.Set("X-Alt-Capability", "3")
+	req.Header.Set("Country", "CN")
+	bs, err = p.sendRequest(req)
+	if err != nil {
+		return err
+	}
+	error_code := jsoniter.Get(bs, "error_code").ToInt()
+	if error_code != 0 {
+		if error_code == 9 {
+			err := p.AuthCaptchaToken("POST:/drive/v1/files")
+			if err != nil {
+				return err
+			}
+			goto START
+		}
+		return fmt.Errorf("remove file error: %s", jsoniter.Get(bs, "error").ToString())
+	}
+
+	task := jsoniter.Get(bs, "task")
+	logrus.Debug(task.ToString())
+
+	return nil
+}
+
+func (p *PikPak) TrashEmpty() error {
+START_TRASH:
+	req, err := http.NewRequest("PATCH", "https://api-drive.mypikpak.com/drive/v1/files/trash:empty", nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json; charset=utf-8")
+	req.Header.Set("Product_flavor_name", "cha")
+	req.Header.Set("X-Captcha-Token", p.CaptchaToken)
+	req.Header.Set("X-Client-Version-Code", "10083")
+	req.Header.Set("X-Peer-Id", p.DeviceId)
+	req.Header.Set("X-User-Region", "1")
+	req.Header.Set("X-Alt-Capability", "3")
+	req.Header.Set("Country", "CN")
+	bs, err := p.sendRequest(req)
+	if err != nil {
+		return err
+	}
+	error_code := jsoniter.Get(bs, "error_code").ToInt()
+	if error_code != 0 {
+		if error_code == 9 {
+			err := p.AuthCaptchaToken("POST:/drive/v1/files")
+			if err != nil {
+				return err
+			}
+			goto START_TRASH
+		}
+		return fmt.Errorf("remove file error: %s", jsoniter.Get(bs, "error").ToString())
+	}
+
+	task := jsoniter.Get(bs, "task")
+	logrus.Debug(task.ToString())
+
+	return nil
 }
